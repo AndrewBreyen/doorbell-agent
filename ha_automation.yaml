@@ -1,0 +1,31 @@
+# Add this automation in Home Assistant (Settings -> Automations -> Edit in YAML,
+# or paste into an automations.yaml include).
+#
+# Since HA now runs on a VM and all AI processing happens on the Mac mini,
+# the automation just fires a REST call to the Mac mini's webhook server —
+# it does NOT run anything locally on the VM.
+
+alias: "Doorbell - AI Concierge"
+description: "Notifies the Mac mini's doorbell agent when the front doorbell rings"
+trigger:
+  - platform: state
+    entity_id: binary_sensor.front_door_doorbell   # match your real entity name
+    to: "on"
+condition: []
+action:
+  - service: rest_command.trigger_doorbell_agent
+mode: single
+
+# ---------------------------------------------------------------------------
+# Also add this to your Home Assistant configuration.yaml (requires HA restart):
+#
+# rest_command:
+#   trigger_doorbell_agent:
+#     url: "http://<mac-mini-ip>:8787/trigger"
+#     method: POST
+#     timeout: 5
+#
+# Replace <mac-mini-ip> with your Mac mini's LAN IP (set a DHCP reservation
+# so it doesn't change). The VM and Mac mini just need to be able to reach
+# each other over the local network -- no port forwarding needed.
+# ---------------------------------------------------------------------------

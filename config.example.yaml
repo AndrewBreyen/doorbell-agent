@@ -1,0 +1,23 @@
+# Copy this file to config.yaml and fill in your details.
+
+home_assistant:
+  url: "http://localhost:8123"          # Your HA instance
+  token: "YOUR_LONG_LIVED_ACCESS_TOKEN"  # HA Profile -> Security -> Long-Lived Access Tokens
+  doorbell_ring_sensor: "binary_sensor.front_door_doorbell"
+  known_face_sensor: "binary_sensor.front_door_recognized_face"  # UniFi Protect face recognition
+  doorbell_talkback_entity: "media_player.front_door_speaker"    # UniFi talkback / speaker entity
+  doorbell_stream_url: "rtsp://your-protect-ip:7447/your-camera-id"  # audio source for STT
+
+models:
+  whisper_binary: "/usr/local/bin/whisper-cli"      # whisper.cpp binary
+  whisper_model: "/home/user/models/ggml-base.en.bin"
+  ollama_model: "llama3.1:8b"
+  piper_binary: "/usr/local/bin/piper"
+  piper_voice: "/home/user/models/en_US-lessac-medium.onnx"
+
+behavior:
+  household_name: "the Smith house"
+  max_exchanges: 3                # cap conversation turns per visit
+  clip_seconds: 6                 # how long to record each listen window
+  notify_service: "notify.mobile_app_your_phone"  # HA notify target
+  known_face_check_enabled: true  # set to false to force the AI to always engage (testing)
