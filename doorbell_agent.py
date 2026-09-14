@@ -26,6 +26,8 @@ from pathlib import Path
 
 import requests
 import yaml
+from dotenv import load_dotenv
+import os
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
@@ -36,7 +38,15 @@ def load_config():
     if not CONFIG_PATH.exists():
         sys.exit("Missing config.yaml — copy config.example.yaml and fill it in first.")
     with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+
+    load_dotenv(Path(__file__).parent / ".env")
+    token = os.environ.get("HA_TOKEN")
+    if not token:
+        sys.exit("Missing HA_TOKEN — copy .env.example to .env and fill it in first.")
+    cfg["home_assistant"]["token"] = token
+
+    return cfg
 
 
 class HomeAssistant:

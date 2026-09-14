@@ -74,13 +74,17 @@ brew install ffmpeg
 
 ```bash
 cd doorbell_agent
-pip install requests pyyaml
+pip install requests pyyaml python-dotenv
 cp config.example.yaml config.yaml
-# Edit config.yaml: HA URL + long-lived access token, entity names, model paths
+cp .env.example .env
+# Edit config.yaml: HA URL, entity names, model paths
+# Edit .env: your real HA long-lived access token
 ```
 
 Generate an HA long-lived token: **HA Profile (bottom left) → Security →
-Long-Lived Access Tokens → Create Token**.
+Long-Lived Access Tokens → Create Token**. Put it in `.env` as `HA_TOKEN=...`
+— this file is gitignored, so it's safe from accidentally being committed.
+`config.yaml` no longer holds any secrets, so it's fine to commit changes to it.
 
 ## 5. Start the webhook server on the Mac mini
 
