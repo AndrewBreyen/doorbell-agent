@@ -22,16 +22,19 @@ import subprocess
 import sys
 import time
 import wave
+import re
+import json
 from pathlib import Path
 
 import requests
 import yaml
+import numpy as np
 from dotenv import load_dotenv
 import os
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
-from prompts import CLASSIFY_PROMPT, RESPONSE_PROMPT
+from prompts import CLASSIFY_AND_RESPOND_PROMPT
 
 
 def load_config():
@@ -105,22 +108,82 @@ def is_known_face(ha, cfg):
         return False
 
 
-def record_clip(cfg, out_path: Path):
+def record_clip(cfg, out_path: Path) -> bool:
     """
-    Records `clip_seconds` of audio from the doorbell RTSP stream using ffmpeg.
-    Requires ffmpeg installed (brew install ffmpeg).
+    Streams audio from the doorbell and stops as soon as the visitor pauses,
+    instead of always recording a fixed duration. Returns True if any speech-
+    level audio was detected, False if the visitor never made noise.
+
+    Tunable via config.yaml under behavior:
+      max_clip_seconds       -- hard cap, always stops by this point
+      silence_duration_seconds -- how long a pause must last to count as "done"
+      silence_rms_threshold  -- volume level below which audio counts as silence
     """
-    seconds = cfg["behavior"]["clip_seconds"]
+    behavior = cfg["behavior"]
+    max_seconds = behavior.get("max_clip_seconds", 8)
+    silence_duration = behavior.get("silence_duration_seconds", 1.2)
+    silence_threshold = behavior.get("silence_rms_threshold", 500)
+
+    sample_rate = 16000
+    chunk_seconds = 0.1
+    chunk_bytes = int(sample_rate * 2 * chunk_seconds)  # 16-bit mono PCM
+
     stream_url = cfg["home_assistant"]["doorbell_stream_url"]
-    cmd = [
-        "ffmpeg", "-y",
-        "-rtsp_transport", "tcp",
+    cmd = ["ffmpeg", "-y"]
+    if stream_url.startswith("rtsp://"):
+        cmd += ["-rtsp_transport", "tcp"]
+    if stream_url.startswith("rtsps://"):
+        cmd += ["-tls_verify", "0"]
+    cmd += [
         "-i", stream_url,
-        "-t", str(seconds),
-        "-ac", "1", "-ar", "16000",
-        str(out_path),
+        "-ac", "1", "-ar", str(sample_rate),
+        "-f", "s16le", "-",  # raw PCM to stdout instead of a fixed-length file
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    frames = bytearray()
+    speech_detected = False
+    silence_run = 0.0
+    elapsed = 0.0
+
+    try:
+        while elapsed < max_seconds:
+            chunk = proc.stdout.read(chunk_bytes)
+            if not chunk:
+                break  # stream ended
+            frames.extend(chunk)
+            elapsed += chunk_seconds
+
+            samples = np.frombuffer(chunk, dtype=np.int16)
+            rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2))) if samples.size else 0.0
+
+            if rms >= silence_threshold:
+                speech_detected = True
+                silence_run = 0.0
+            else:
+                silence_run += chunk_seconds
+
+            # Only cut the recording short once the visitor has actually
+            # spoken and then paused -- don't stop just because they haven't
+            # started talking yet.
+            if speech_detected and silence_run >= silence_duration:
+                break
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    with wave.open(str(out_path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(bytes(frames))
+
+    return speech_detected
+
 
 
 def transcribe(cfg, audio_path: Path) -> str:
@@ -130,7 +193,10 @@ def transcribe(cfg, audio_path: Path) -> str:
         "-f", str(audio_path),
         "-nt",  # no timestamps
     ]
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"whisper-cli failed (exit {result.returncode}):\n{result.stderr}")
+        raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
     return result.stdout.strip()
 
 
@@ -144,30 +210,59 @@ def ollama_generate(cfg, prompt: str) -> str:
     return r.json()["response"].strip()
 
 
-def classify_intent(cfg, transcript: str) -> str:
-    prompt = CLASSIFY_PROMPT.format(transcript=transcript)
-    label = ollama_generate(cfg, prompt).strip().upper()
-    valid = {"DELIVERY", "VISITOR", "SOLICITOR", "UNCLEAR"}
-    return label if label in valid else "UNCLEAR"
-
-
-def generate_response(cfg, transcript: str, intent: str, history: str) -> str:
-    prompt = RESPONSE_PROMPT.format(
+def classify_and_respond(cfg, transcript: str, history: str) -> tuple[str, str]:
+    """
+    Single combined LLM call: classifies intent AND writes the reply in one
+    round-trip instead of two, cutting a full model inference out of the
+    response latency.
+    """
+    prompt = CLASSIFY_AND_RESPOND_PROMPT.format(
         household_name=cfg["behavior"]["household_name"],
-        intent=intent,
         history=history or "(none yet)",
         transcript=transcript,
     )
-    return ollama_generate(cfg, prompt)
+    raw = ollama_generate(cfg, prompt)
+
+    valid = {"DELIVERY", "VISITOR", "SOLICITOR", "UNCLEAR"}
+    try:
+        # Ollama sometimes wraps JSON in markdown fences despite instructions -- strip those.
+        cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        parsed = json.loads(cleaned)
+        intent = str(parsed.get("intent", "")).upper()
+        reply = str(parsed.get("reply", "")).strip()
+        if intent not in valid or not reply:
+            raise ValueError("missing/invalid fields")
+    except (json.JSONDecodeError, ValueError):
+        # Fallback if the model didn't return clean JSON -- don't crash the visit over it.
+        intent, reply = "UNCLEAR", "Hi, can I help you with something?"
+
+    return intent, reply
+
+
+PRONUNCIATION_OVERRIDES = {
+    # Only affects what's sent to the TTS engine -- transcripts/notifications
+    # keep the real spelling.
+    "breyen": "Brian",
+}
+
+
+def apply_pronunciation_overrides(text: str) -> str:
+    for spelling, phonetic in PRONUNCIATION_OVERRIDES.items():
+        text = re.sub(rf"\b{spelling}\b", phonetic, text, flags=re.IGNORECASE)
+    return text
 
 
 def synthesize_speech(cfg, text: str, out_path: Path):
+    speech_text = apply_pronunciation_overrides(text)
     cmd = [
         cfg["models"]["piper_binary"],
         "--model", cfg["models"]["piper_voice"],
         "--output_file", str(out_path),
     ]
-    subprocess.run(cmd, input=text, check=True, capture_output=True, text=True)
+    result = subprocess.run(cmd, input=speech_text, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"piper failed (exit {result.returncode}):\n{result.stderr}")
+        raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
 
 
 def run_visit(cfg, ha: HomeAssistant):
@@ -181,23 +276,25 @@ def run_visit(cfg, ha: HomeAssistant):
         clip_path = tmp_dir / f"clip_{turn}.wav"
         reply_path = tmp_dir / f"reply_{turn}.wav"
 
-        record_clip(cfg, clip_path)
+        speech_detected = record_clip(cfg, clip_path)
+        if not speech_detected:
+            break  # visitor never made noise -- skip transcription entirely, save time
         transcript = transcribe(cfg, clip_path)
 
         if not transcript:
-            break  # visitor said nothing / left
+            break  # ffmpeg picked up noise but whisper couldn't make out words
 
-        intent = classify_intent(cfg, transcript)
+        intent, reply_text = classify_and_respond(cfg, transcript, "\n".join(history_lines))
         final_intent = intent
-        reply_text = generate_response(cfg, transcript, intent, "\n".join(history_lines))
 
         history_lines.append(f"Visitor: {transcript}")
         history_lines.append(f"Assistant: {reply_text}")
 
         synthesize_speech(cfg, reply_text, reply_path)
+        agent_base_url = cfg["behavior"]["agent_base_url"].rstrip("/")
         ha.play_audio_on_doorbell(
             cfg["home_assistant"]["doorbell_talkback_entity"],
-            f"file://{reply_path}",
+            f"{agent_base_url}/audio/{reply_path.name}",
         )
 
         # Solicitors: say the line once and stop engaging further

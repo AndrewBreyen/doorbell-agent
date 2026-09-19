@@ -14,13 +14,17 @@ Then point HA's rest_command at:
 """
 
 import threading
+from pathlib import Path
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 
 from doorbell_agent import HomeAssistant, is_known_face, load_config, run_visit
 
 app = Flask(__name__)
 cfg = load_config()
+
+AUDIO_DIR = Path("/tmp/doorbell_agent")
+AUDIO_DIR.mkdir(exist_ok=True)
 
 
 def handle_visit():
@@ -37,6 +41,13 @@ def trigger():
     # instead of waiting on the full multi-turn conversation.
     threading.Thread(target=handle_visit, daemon=True).start()
     return jsonify({"status": "started"}), 202
+
+
+@app.route("/audio/<path:filename>")
+def serve_audio(filename):
+    # Serves generated reply clips so Home Assistant (on a different machine)
+    # can fetch them over HTTP instead of needing local filesystem access.
+    return send_from_directory(AUDIO_DIR, filename)
 
 
 if __name__ == "__main__":

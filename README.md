@@ -55,6 +55,8 @@ Entity names vary — check **Settings → Devices & Services → Entities** and
 ```bash
 # Whisper.cpp (speech-to-text)
 brew install whisper-cpp
+# Confirm the binary installed correctly:
+which whisper-cli
 # Download a model, e.g.:
 curl -L -o ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
 
@@ -62,19 +64,27 @@ curl -L -o ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve
 brew install ollama
 ollama pull llama3.1:8b
 
-# Piper (text-to-speech)
-brew install piper-tts
-# Download a voice model from https://github.com/rhasspy/piper/releases
+# Piper (text-to-speech) -- NOT available via Homebrew, install via pip instead
+pip install piper-tts
+# Download a voice model, e.g.:
+curl -L -o en_US-lessac-medium.onnx https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
+curl -L -o en_US-lessac-medium.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
 
 # ffmpeg (audio capture from RTSP)
 brew install ffmpeg
 ```
 
-## 4. Configure the agent
+## 4. Set up a Python virtual environment and configure the agent
+
+macOS's Homebrew-managed Python blocks installing packages system-wide (PEP 668),
+so this project uses a virtual environment — an isolated set of Python packages
+just for this folder.
 
 ```bash
 cd doorbell_agent
-pip install requests pyyaml python-dotenv
+python3 -m venv venv
+source venv/bin/activate   # run this every time you open a new terminal for this project
+pip install requests pyyaml python-dotenv flask piper-tts
 cp config.example.yaml config.yaml
 cp .env.example .env
 # Edit config.yaml: HA URL, entity names, model paths
@@ -86,10 +96,13 @@ Long-Lived Access Tokens → Create Token**. Put it in `.env` as `HA_TOKEN=...`
 — this file is gitignored, so it's safe from accidentally being committed.
 `config.yaml` no longer holds any secrets, so it's fine to commit changes to it.
 
+`venv/` is also gitignored — it's a local, machine-specific folder and should
+never be pushed to the repo.
+
 ## 5. Start the webhook server on the Mac mini
 
 ```bash
-pip install flask
+source venv/bin/activate   # if not already active in this terminal
 python server.py
 ```
 
@@ -142,7 +155,7 @@ agent so it starts on boot and restarts if it crashes:
   <key>Label</key><string>com.doorbell.agent</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/python3</string>
+    <string>/path/to/doorbell_agent/venv/bin/python3</string>
     <string>/path/to/doorbell_agent/server.py</string>
   </array>
   <key>WorkingDirectory</key><string>/path/to/doorbell_agent</string>
@@ -151,6 +164,10 @@ agent so it starts on boot and restarts if it crashes:
 </dict></plist>
 ```
 Then: `launchctl load ~/Library/LaunchAgents/com.doorbell.agent.plist`
+
+Note the `ProgramArguments` above points at `venv/bin/python3`, not the system
+Python — this ensures launchd runs the server with the packages you installed
+in step 4.
 
 ## Testing
 
