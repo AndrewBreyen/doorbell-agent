@@ -27,6 +27,7 @@ through your Mac's speakers (not the doorbell) with `afplay`.
 """
 
 import argparse
+import itertools
 import subprocess
 import time
 from pathlib import Path
@@ -39,18 +40,81 @@ from doorbell_agent import (
 )
 
 
+def run_single_turn(cfg, tmp_dir, transcript, turn_num=0):
+    """Runs one turn through classify+respond+TTS and plays it back. Returns intent."""
+    print(f"Visitor: \"{transcript}\"")
+
+    t0 = time.time()
+    intent, reply_text = classify_and_respond(cfg, transcript, history="")
+    print(f"  -> LLM took {time.time() - t0:.2f}s | intent: {intent}")
+    print(f"  -> reply: \"{reply_text}\"")
+
+    t0 = time.time()
+    reply_path = tmp_dir / f"test_reply_{turn_num}.wav"
+    synthesize_speech(cfg, reply_text, reply_path)
+    print(f"  -> Piper took {time.time() - t0:.2f}s")
+
+    subprocess.run(["afplay", str(reply_path)])
+    return intent
+
+
+def run_interactive(cfg, tmp_dir):
+    """
+    Multi-turn test loop, mirroring run_visit()'s conversational logic (history
+    carried between turns, stops early on a SOLICITOR reply) but loops
+    indefinitely instead of capping at max_exchanges -- this is for casual
+    testing, not simulating a real visit's turn limit.
+    """
+    history_lines = []
+
+    print("Interactive test -- runs until you type 'quit' (or hit Enter on empty).\n")
+
+    for turn in itertools.count():
+        transcript = input(f"[Turn {turn + 1}] Visitor says: ").strip()
+        if not transcript or transcript.lower() == "quit":
+            print("Ending session.")
+            break
+
+        t0 = time.time()
+        intent, reply_text = classify_and_respond(cfg, transcript, "\n".join(history_lines))
+        print(f"  -> LLM took {time.time() - t0:.2f}s | intent: {intent}")
+        print(f"  -> reply: \"{reply_text}\"")
+
+        history_lines.append(f"Visitor: {transcript}")
+        history_lines.append(f"Assistant: {reply_text}")
+
+        t0 = time.time()
+        reply_path = tmp_dir / f"test_reply_{turn}.wav"
+        synthesize_speech(cfg, reply_text, reply_path)
+        print(f"  -> Piper took {time.time() - t0:.2f}s")
+
+        subprocess.run(["afplay", str(reply_path)])
+
+        if intent == "SOLICITOR":
+            print("(Note: the real doorbell agent would stop engaging here -- this test loop keeps going.)")
+        print()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Test the doorbell agent pipeline locally.")
-    parser.add_argument("--text", help="Skip recording+whisper, use this as the transcript directly.")
-    parser.add_argument("--audio", help="Path to a local .wav file to run through whisper.")
+    parser.add_argument("--text", help="Skip recording+whisper, use this as the transcript directly (single turn).")
+    parser.add_argument("--audio", help="Path to a local .wav file to run through whisper (single turn).")
+    parser.add_argument(
+        "--interactive", action="store_true",
+        help="Multi-turn mode -- type each visitor line, loops up to max_exchanges like a real visit."
+    )
     args = parser.parse_args()
 
-    if not args.text and not args.audio:
-        parser.error("Pass either --text \"...\" or --audio path/to/file.wav")
+    if not args.text and not args.audio and not args.interactive:
+        parser.error("Pass --text \"...\", --audio path/to/file.wav, or --interactive")
 
     cfg = load_config()
     tmp_dir = Path("/tmp/doorbell_agent")
     tmp_dir.mkdir(exist_ok=True)
+
+    if args.interactive:
+        run_interactive(cfg, tmp_dir)
+        return
 
     total_start = time.time()
 
@@ -59,34 +123,14 @@ def main():
         t0 = time.time()
         transcript = transcribe(cfg, Path(args.audio))
         print(f"  -> whisper took {time.time() - t0:.2f}s")
-        print(f"  -> transcript: \"{transcript}\"")
         if not transcript:
             print("No speech detected in that file, stopping.")
             return
     else:
         transcript = args.text
-        print(f"Using provided text: \"{transcript}\"")
 
-    print("Classifying + generating reply ...")
-    t0 = time.time()
-    intent, reply_text = classify_and_respond(cfg, transcript, history="")
-    llm_time = time.time() - t0
-    print(f"  -> LLM took {llm_time:.2f}s")
-    print(f"  -> intent: {intent}")
-    print(f"  -> reply: \"{reply_text}\"")
-
-    print("Synthesizing speech ...")
-    t0 = time.time()
-    reply_path = tmp_dir / "test_reply.wav"
-    synthesize_speech(cfg, reply_text, reply_path)
-    tts_time = time.time() - t0
-    print(f"  -> Piper took {tts_time:.2f}s")
-
-    total_time = time.time() - total_start
-    print(f"\nTotal pipeline time (excluding any recording): {total_time:.2f}s")
-
-    print(f"\nPlaying reply locally: {reply_path}")
-    subprocess.run(["afplay", str(reply_path)])
+    run_single_turn(cfg, tmp_dir, transcript)
+    print(f"\nTotal pipeline time (excluding any recording): {time.time() - total_start:.2f}s")
 
 
 if __name__ == "__main__":

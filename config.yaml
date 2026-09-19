@@ -1,0 +1,24 @@
+home_assistant:
+  url: "http://192.168.1.110:8123"          # Your HA instance
+  # token is now read from the HA_TOKEN variable in your .env file (see .env.example)
+  doorbell_ring_sensor: "binary_sensor.kitchen_doorbell_doorbell"
+  known_face_sensor: "binary_sensor.front_door_recognized_face"  # unused, known_face_check_enabled is false
+  doorbell_talkback_entity: "media_player.kitchen_doorbell_speaker"
+  doorbell_stream_url: "rtsps://192.168.1.200:7441/bImeKHJTqvhWwyNT?enableSrtp"
+
+models:
+  whisper_binary: "/opt/homebrew/bin/whisper-cli"      # confirm with: which whisper-cli
+  whisper_model: "/Users/macmini/git/doorbell-agent/models/ggml-base.en.bin"
+  ollama_model: "qwen2.5:7b-instruct"
+  piper_binary: "/Users/macmini/git/doorbell-agent/venv/bin/piper"
+  piper_voice: "/Users/macmini/git/doorbell-agent/models/en_US-lessac-medium.onnx"
+
+behavior:
+  household_name: "the Breyen house"
+  max_exchanges: 3
+  max_clip_seconds: 8
+  silence_duration_seconds: 1.2
+  silence_rms_threshold: 500
+  notify_service: "notify.mobile_app_andrews_iphone"
+  known_face_check_enabled: false
+  agent_base_url: "http://192.168.1.100:8787"

@@ -203,7 +203,12 @@ def transcribe(cfg, audio_path: Path) -> str:
 def ollama_generate(cfg, prompt: str) -> str:
     r = requests.post(
         "http://localhost:11434/api/generate",
-        json={"model": cfg["models"]["ollama_model"], "prompt": prompt, "stream": False},
+        json={
+            "model": cfg["models"]["ollama_model"],
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.2},  # lower = more literal, less likely to invent things
+        },
         timeout=30,
     )
     r.raise_for_status()
