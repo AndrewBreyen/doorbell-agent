@@ -84,7 +84,7 @@ just for this folder.
 cd doorbell_agent
 python3 -m venv venv
 source venv/bin/activate   # run this every time you open a new terminal for this project
-pip install requests pyyaml python-dotenv flask piper-tts
+pip install requests pyyaml python-dotenv flask piper-tts numpy
 cp config.example.yaml config.yaml
 cp .env.example .env
 # Edit config.yaml: HA URL, entity names, model paths
