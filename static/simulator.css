@@ -1,0 +1,54 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, system-ui, sans-serif;
+  color: #24312d;
+  background: #f5f4ef;
+  --green: #185746;
+  --muted: #54615b;
+  --line: #d9ded8;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { width: min(1060px, 100% - 2rem); margin: 3.5rem auto; }
+header { margin-bottom: 2rem; }
+.brand { color: var(--green); font-weight: 700; }
+h1 { font-size: clamp(2rem, 6vw, 3.25rem); letter-spacing: -.045em; margin: .4rem 0; }
+h2 { font-size: 1.2rem; margin: 0 0 1.2rem; }
+p { color: var(--muted); line-height: 1.55; }
+.layout { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 1.25rem; align-items: start; }
+.panel { background: white; border: 1px solid var(--line); border-radius: 1rem; padding: clamp(1rem, 3vw, 1.65rem); }
+.panel-head, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.panel-head { justify-content: space-between; }
+.panel-head h2 { margin: 0; }
+#status { color: var(--green); background: #e7f2eb; border-radius: 2rem; padding: .4rem .7rem; font-size: .85rem; font-weight: 700; }
+label { display: block; font-weight: 600; font-size: .9rem; }
+select, textarea, button { font: inherit; }
+select, textarea {
+  display: block;
+  width: 100%;
+  margin: .4rem 0 .8rem;
+  padding: .55rem .65rem;
+  color: inherit;
+  border: 1px solid #a9b4ad;
+  border-radius: .4rem;
+  background: #fff;
+}
+textarea { resize: vertical; }
+.checkbox { display: flex; align-items: center; gap: .4rem; margin: 1.1rem 0; }
+input[type="checkbox"] { accent-color: var(--green); width: 1rem; height: 1rem; }
+fieldset { min-width: 0; border: 1px solid var(--line); border-radius: .6rem; margin: 0 0 1rem; padding: .8rem; }
+legend { font-size: .85rem; padding: 0 .35rem; color: var(--muted); }
+button { cursor: pointer; border: 1px solid var(--green); border-radius: .45rem; padding: .65rem .95rem; color: white; background: var(--green); font-weight: 700; }
+button.secondary, button.remove { background: white; color: var(--green); }
+button.remove { border-color: transparent; padding: .25rem 0; font-size: .85rem; }
+button:disabled { opacity: .5; cursor: default; }
+:focus-visible { outline: 2px solid #147858; outline-offset: 3px; }
+ol { padding-left: 1.5rem; margin-bottom: 0; }
+li { padding: .65rem .25rem; border-bottom: 1px solid var(--line); }
+li:last-child { border-bottom: 0; }
+li div { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .3rem; }
+@media (max-width: 700px) {
+  main { margin-top: 1.75rem; }
+  .layout { grid-template-columns: 1fr; }
+}

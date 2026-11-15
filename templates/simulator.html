@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Doorbell Agent Simulator</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='simulator.css') }}">
+  <script defer src="{{ url_for('static', filename='simulator.js') }}"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="brand">Doorbell Agent</p>
+      <h1>Doorbell simulator</h1>
+      <p>Send a mock ring and see how the concierge handles the visit.</p>
+    </header>
+    <div class="layout">
+      <form class="panel" id="simulator">
+        <h2>Visit setup</h2>
+        <label for="scenario">Scenario</label>
+        <select id="scenario">
+          <option value="delivery">Package delivery</option>
+          <option value="visitor">Multi-turn visitor</option>
+          <option value="solicitor">Solicitor</option>
+          <option value="known">Known face</option>
+          <option value="silence">No speech</option>
+          <option value="unclear">Unclear intent</option>
+        </select>
+        <label class="checkbox"><input type="checkbox" id="known"> Recognized by the doorbell</label>
+        <div id="turns"></div>
+        <div class="actions">
+          <button type="submit">Simulate ring</button>
+          <button type="button" class="secondary" id="add">Add turn</button>
+        </div>
+      </form>
+      <section class="panel" aria-labelledby="activity">
+        <div class="panel-head">
+          <h2 id="activity">Event log</h2>
+          <span id="status" role="status">Ready</span>
+        </div>
+        <p id="empty">Run a scenario to see recognition, conversation, and notification events here.</p>
+        <ol id="events"></ol>
+      </section>
+    </div>
+  </main>
+  <template id="turn-template">
+    <fieldset>
+      <legend></legend>
+      <label>Mock transcript<textarea maxlength="500" rows="2" placeholder="Leave blank to simulate silence"></textarea></label>
+      <label>Mock intent<select>
+        <option value="DELIVERY">Delivery</option>
+        <option value="VISITOR">Visitor</option>
+        <option value="SOLICITOR">Solicitor</option>
+        <option value="UNCLEAR">Unclear</option>
+      </select></label>
+      <button type="button" class="remove">Remove turn</button>
+    </fieldset>
+  </template>
+</body>
+</html>

@@ -50,50 +50,47 @@ Confirm you now have entities like:
 Entity names vary — check **Settings → Devices & Services → Entities** and update
 `config.yaml` accordingly.
 
-## 3. Install the local AI stack (on the Mac mini)
+## 3. Set up the local AI stack on the Mac mini
+
+With Python 3 and [Homebrew](https://brew.sh/) installed, run:
 
 ```bash
-# Whisper.cpp (speech-to-text)
-brew install whisper-cpp
-# Download a model, e.g.:
-curl -L -o ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-
-# Ollama (LLM)
-brew install ollama
-ollama pull llama3.1:8b
-
-# Piper (text-to-speech)
-brew install piper-tts
-# Download a voice model from https://github.com/rhasspy/piper/releases
-
-# ffmpeg (audio capture from RTSP)
-brew install ffmpeg
+./setup.sh
 ```
+
+Setup installs missing ffmpeg, whisper.cpp, and Ollama through Homebrew. It
+installs Piper in its own Python environment and downloads the Whisper model
+and Piper voice to `models/`. It preserves custom model paths and updates
+obsolete example paths. If `.env` is missing, setup asks for your Home
+Assistant long-lived access token with the input hidden.
 
 ## 4. Configure the agent
 
-```bash
-cd doorbell_agent
-pip install requests pyyaml python-dotenv
-cp config.example.yaml config.yaml
-cp .env.example .env
-# Edit config.yaml: HA URL, entity names, model paths
-# Edit .env: your real HA long-lived access token
-```
+Edit `config.yaml` with your Home Assistant URL, doorbell entity names, and
+stream URL. Make sure the Ollama model specified in `config.yaml` is installed.
+With Ollama running, the default model can be installed with
+`ollama pull llama3.1:8b`.
 
 Generate an HA long-lived token: **HA Profile (bottom left) → Security →
 Long-Lived Access Tokens → Create Token**. Put it in `.env` as `HA_TOKEN=...`
 — this file is gitignored, so it's safe from accidentally being committed.
 `config.yaml` no longer holds any secrets, so it's fine to commit changes to it.
 
+`venv/` is also gitignored — it's a local, machine-specific folder and should
+never be pushed to the repo.
+
 ## 5. Start the webhook server on the Mac mini
 
 ```bash
-pip install flask
-python server.py
+./launch.sh
 ```
 
-This listens on port `8787` for the trigger from HA. Keep it running (see
+The launcher checks the configured audio tools and model files, starts Ollama
+if needed, and serves the webhook with Waitress on port `8787`. The webhook invokes ffmpeg,
+whisper.cpp, and Piper when a ring arrives. Home Assistant and UniFi Protect
+must already be running.
+
+Keep the launcher running (see
 "Keeping it running" below for a way to auto-start it).
 
 Find your Mac mini's LAN IP (`ipconfig getifaddr en0`) and set a DHCP
@@ -117,6 +114,26 @@ to Python, whisper.cpp, Ollama, or Piper — all of that stays on the Mac mini.
 - Check your phone for the notification summary afterward
 - Tune `prompts.py` if the tone isn't quite right (e.g., make the solicitor
   response firmer/softer to taste)
+
+## Test visits in the web simulator
+
+From the repository directory, set up and start the simulator:
+
+```bash
+./setup.sh --simulator
+./launch.sh --simulator
+```
+
+Open [the simulator](http://127.0.0.1:8788), choose a scenario or edit up to
+three listening turns, and click **Simulate ring**. The event log shows each
+state the visit reaches, including simulated talkback and the notification
+summary. The known-face scenario skips the concierge, and the solicitor
+scenario stops after the first reply even with another turn queued.
+
+The simulator runs on localhost and uses the same visit logic as the webhook.
+It uses scripted transcripts, intent labels and replies, and records the speaker
+and notification calls in the log. It requires no Home Assistant credentials,
+doorbell, audio tools, or local AI models.
 
 ## Files in this project
 
@@ -142,7 +159,7 @@ agent so it starts on boot and restarts if it crashes:
   <key>Label</key><string>com.doorbell.agent</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/python3</string>
+    <string>/path/to/doorbell_agent/venv/bin/python3</string>
     <string>/path/to/doorbell_agent/server.py</string>
   </array>
   <key>WorkingDirectory</key><string>/path/to/doorbell_agent</string>
@@ -151,6 +168,10 @@ agent so it starts on boot and restarts if it crashes:
 </dict></plist>
 ```
 Then: `launchctl load ~/Library/LaunchAgents/com.doorbell.agent.plist`
+
+Note the `ProgramArguments` above points at `venv/bin/python3`, not the system
+Python — this ensures launchd runs the server with the packages you installed
+in step 4.
 
 ## Testing
 

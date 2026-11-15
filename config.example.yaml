@@ -9,11 +9,11 @@ home_assistant:
   doorbell_stream_url: "rtsp://your-protect-ip:7447/your-camera-id"  # audio source for STT
 
 models:
-  whisper_binary: "/usr/local/bin/whisper-cli"      # whisper.cpp binary
-  whisper_model: "/home/user/models/ggml-base.en.bin"
+  whisper_binary: "whisper-cli"      # whisper.cpp binary
+  whisper_model: "models/ggml-base.en.bin"
   ollama_model: "llama3.1:8b"
-  piper_binary: "/usr/local/bin/piper"
-  piper_voice: "/home/user/models/en_US-lessac-medium.onnx"
+  piper_binary: "venv/piper-env/bin/piper"
+  piper_voice: "models/en_US-lessac-medium.onnx"
 
 behavior:
   household_name: "the Smith house"

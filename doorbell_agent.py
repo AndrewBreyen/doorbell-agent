@@ -23,6 +23,7 @@ import sys
 import time
 import wave
 from pathlib import Path
+from types import SimpleNamespace
 
 import requests
 import yaml
@@ -107,14 +108,17 @@ def is_known_face(ha, cfg):
 
 def record_clip(cfg, out_path: Path):
     """
-    Records `clip_seconds` of audio from the doorbell RTSP stream using ffmpeg.
+    Records `clip_seconds` of audio from the doorbell RTSP/RTSPS stream using ffmpeg.
     Requires ffmpeg installed (brew install ffmpeg).
     """
     seconds = cfg["behavior"]["clip_seconds"]
     stream_url = cfg["home_assistant"]["doorbell_stream_url"]
-    cmd = [
-        "ffmpeg", "-y",
-        "-rtsp_transport", "tcp",
+    cmd = ["ffmpeg", "-y"]
+    # -rtsp_transport tcp only applies to plain rtsp:// streams; UniFi's
+    # rtsps:// (TLS-encrypted) streams don't take this flag.
+    if stream_url.startswith("rtsp://"):
+        cmd += ["-rtsp_transport", "tcp"]
+    cmd += [
         "-i", stream_url,
         "-t", str(seconds),
         "-ac", "1", "-ar", "16000",
@@ -170,8 +174,26 @@ def synthesize_speech(cfg, text: str, out_path: Path):
     subprocess.run(cmd, input=text, check=True, capture_output=True, text=True)
 
 
-def run_visit(cfg, ha: HomeAssistant):
-    tmp_dir = Path("/tmp/doorbell_agent")
+def handle_ring(cfg, ha, *, operations=None, tmp_dir=None):
+    if is_known_face(ha, cfg):
+        return False
+
+    run_visit(cfg, ha, operations=operations, tmp_dir=tmp_dir)
+    return True
+
+
+def run_visit(cfg, ha: HomeAssistant, *, operations=None, tmp_dir=None):
+    if operations is None:
+        operations = SimpleNamespace(
+            record=record_clip,
+            transcribe=transcribe,
+            classify=classify_intent,
+            respond=generate_response,
+            synthesize=synthesize_speech,
+            pause=time.sleep,
+        )
+    if tmp_dir is None:
+        tmp_dir = Path("/tmp/doorbell_agent")
     tmp_dir.mkdir(exist_ok=True)
 
     history_lines = []
@@ -181,20 +203,20 @@ def run_visit(cfg, ha: HomeAssistant):
         clip_path = tmp_dir / f"clip_{turn}.wav"
         reply_path = tmp_dir / f"reply_{turn}.wav"
 
-        record_clip(cfg, clip_path)
-        transcript = transcribe(cfg, clip_path)
+        operations.record(cfg, clip_path)
+        transcript = operations.transcribe(cfg, clip_path)
 
         if not transcript:
             break  # visitor said nothing / left
 
-        intent = classify_intent(cfg, transcript)
+        intent = operations.classify(cfg, transcript)
         final_intent = intent
-        reply_text = generate_response(cfg, transcript, intent, "\n".join(history_lines))
+        reply_text = operations.respond(cfg, transcript, intent, "\n".join(history_lines))
 
         history_lines.append(f"Visitor: {transcript}")
         history_lines.append(f"Assistant: {reply_text}")
 
-        synthesize_speech(cfg, reply_text, reply_path)
+        operations.synthesize(cfg, reply_text, reply_path)
         ha.play_audio_on_doorbell(
             cfg["home_assistant"]["doorbell_talkback_entity"],
             f"file://{reply_path}",
@@ -204,7 +226,7 @@ def run_visit(cfg, ha: HomeAssistant):
         if intent == "SOLICITOR":
             break
 
-        time.sleep(1)
+        operations.pause(1)
 
     summary = "\n".join(history_lines) if history_lines else "(no speech detected)"
     ha.notify(
@@ -218,12 +240,8 @@ def main():
     cfg = load_config()
     ha = HomeAssistant(cfg)
 
-    if is_known_face(ha, cfg):
-        # Known face recognized by UniFi Protect -> skip the AI entirely.
+    if not handle_ring(cfg, ha):
         print("Known face detected, skipping AI concierge.")
-        return
-
-    run_visit(cfg, ha)
 
 
 if __name__ == "__main__":

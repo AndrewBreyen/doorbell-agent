@@ -13,11 +13,13 @@ Then point HA's rest_command at:
     http://<mac-mini-ip>:8787/trigger
 """
 
+import logging
 import threading
 
 from flask import Flask, jsonify
+from waitress import serve
 
-from doorbell_agent import HomeAssistant, is_known_face, load_config, run_visit
+from doorbell_agent import HomeAssistant, handle_ring, load_config
 
 app = Flask(__name__)
 cfg = load_config()
@@ -25,10 +27,8 @@ cfg = load_config()
 
 def handle_visit():
     ha = HomeAssistant(cfg)
-    if is_known_face(ha, cfg):
+    if not handle_ring(cfg, ha):
         print("Known face detected, skipping AI concierge.")
-        return
-    run_visit(cfg, ha)
 
 
 @app.route("/trigger", methods=["POST"])
@@ -41,4 +41,5 @@ def trigger():
 
 if __name__ == "__main__":
     # Bind to 0.0.0.0 so the VM running HA can reach it over your LAN.
-    app.run(host="0.0.0.0", port=8787)
+    logging.basicConfig(level=logging.INFO)
+    serve(app, host="0.0.0.0", port=8787)
