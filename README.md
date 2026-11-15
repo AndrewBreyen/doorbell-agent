@@ -6,7 +6,7 @@ all the actual STT/LLM/TTS processing runs on your Mac mini. No cloud APIs.
 
 **Architecture:**
 ```
-UniFi doorbell → HA (VM) → REST call over LAN → server.py (Mac mini)
+UniFi doorbell → HA (VM) → REST call over LAN → doorbell/server.py (Mac mini)
                                                         ↓
                                      whisper.cpp → Ollama → Piper (all on Mac mini)
                                                         ↓
@@ -113,7 +113,7 @@ to Python, whisper.cpp, Ollama, or Piper — all of that stays on the Mac mini.
 - Have someone NOT tagged as a known face ring the doorbell
 - You should hear the assistant greet them, classify what they need, and respond
 - Check your phone for the notification summary afterward
-- Tune `prompts.py` if the tone isn't quite right (e.g., make the solicitor
+- Tune `doorbell/prompts.py` if the tone isn't quite right (e.g., make the solicitor
   response firmer/softer to taste)
 
 ## Test visits in the web simulator
@@ -136,13 +136,41 @@ It uses scripted transcripts, intent labels and replies, and records the speaker
 and notification calls in the log. It requires no Home Assistant credentials,
 doorbell, audio tools, or local AI models.
 
+## Automated tests and live timing
+
+Run the automated suite from the repository root after setup:
+
+```bash
+venv/bin/python -m unittest discover -v
+```
+
+The suite uses simulated inputs and temporary files to exercise setup and launch,
+Home Assistant and Ollama requests, audio processing, the webhook, and the
+simulator. It runs without a doorbell or downloaded models. To exercise the local
+models and speaker manually, run:
+
+```bash
+venv/bin/python -m tools.check_pipeline --text "I have a package for you"
+```
+
+The live webhook logs the time spent capturing audio, transcribing, generating
+and synthesizing replies, requesting playback, and sending notifications. It
+also logs the time from ring handling to the first playback request. The
+playback request time measures Home Assistant's acknowledgment. Between turns,
+the agent waits for the reply's WAV duration plus one second before listening
+again.
+
 ## Files in this project
 
 | File | Purpose |
 |---|---|
-| `server.py` | Webhook server — runs on the Mac mini, receives HA's trigger |
-| `doorbell_agent.py` | Core logic: known-face check → STT → classify → respond → TTS → notify |
-| `prompts.py` | The classification and response prompts — tune tone here |
+| `doorbell/agent.py` | Core recognition, audio, conversation, and notification flow |
+| `doorbell/server.py` | Live webhook and reply audio server |
+| `doorbell/simulator.py` | Simulator API and dashboard |
+| `doorbell/prompts.py` | Classification and response prompts |
+| `doorbell/static/` and `doorbell/templates/` | Simulator frontend |
+| `tests/` | Automated tests |
+| `tools/check_pipeline.py` | Manual model and audio diagnostics |
 | `config.example.yaml` | Template config — copy to `config.yaml` and fill in |
 | `ha_automation.yaml` | Home Assistant automation + `rest_command` that calls the Mac mini |
 
@@ -186,6 +214,6 @@ once you're happy with it.
 - **Too slow?** Use a smaller Ollama model (e.g., `phi3:mini`) or a smaller
   Whisper model (`ggml-tiny.en.bin`) — trade a little accuracy for speed.
 - **Too aggressive/not aggressive enough with solicitors?** Edit the SOLICITOR
-  rule in `prompts.py`'s `RESPONSE_PROMPT`.
+  rule in `doorbell/prompts.py`.
 - **False known-face negatives?** Improve tagging in UniFi Protect's Face
   Recognition settings — the agent only skips people Protect actually recognizes.

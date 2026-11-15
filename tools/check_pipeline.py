@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_pipeline.py
+tools.check_pipeline
 
 Test the classify -> LLM -> TTS pipeline WITHOUT touching the real doorbell
 or Home Assistant. Useful for tuning model choice / prompt / speed without
@@ -11,7 +11,7 @@ Two modes:
   1. Text mode -- skips recording and whisper entirely, just tests the LLM
      and TTS steps (fastest way to iterate on prompts/models):
 
-       python test_pipeline.py --text "Hi, I have a package for you"
+       python -m tools.check_pipeline --text "Hi, I have a package for you"
 
   2. Audio mode -- runs a local audio file through whisper too, so you can
      also test transcription speed/accuracy. Record a quick clip with your
@@ -20,7 +20,7 @@ Two modes:
        # record 5 seconds from your Mac's built-in mic
        ffmpeg -f avfoundation -i ":0" -t 5 -ac 1 -ar 16000 test_input.wav
 
-       python test_pipeline.py --audio test_input.wav
+       python -m tools.check_pipeline --audio test_input.wav
 
 Prints timing for each stage and plays the synthesized reply out loud
 through your Mac's speakers (not the doorbell) with `afplay`.
@@ -32,7 +32,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from doorbell_agent import (
+from doorbell.agent import (
     classify_and_respond,
     load_config,
     synthesize_speech,

@@ -1,56 +1,7 @@
-#!/usr/bin/env python3
-"""
-server.py
+"""Compatibility entry point for `python server.py`."""
 
-Runs on the Mac mini. Exposes a small webhook that Home Assistant (on your VM)
-calls when the doorbell rings. All the actual STT/LLM/TTS processing happens
-here, locally on the Mac mini — HA's VM just fires the trigger.
-
-Start with:
-    python server.py
-
-Then point HA's rest_command at:
-    http://<mac-mini-ip>:8787/trigger
-"""
-
-import logging
-import threading
-from pathlib import Path
-
-from flask import Flask, jsonify, send_from_directory
-from waitress import serve
-
-from doorbell_agent import HomeAssistant, handle_ring, load_config
-
-app = Flask(__name__)
-cfg = load_config()
-
-AUDIO_DIR = Path("/tmp/doorbell_agent")
-AUDIO_DIR.mkdir(exist_ok=True)
-
-
-def handle_visit():
-    ha = HomeAssistant(cfg)
-    if not handle_ring(cfg, ha):
-        print("Known face detected, skipping AI concierge.")
-
-
-@app.route("/trigger", methods=["POST"])
-def trigger():
-    # Run in a background thread so HA's webhook call returns immediately
-    # instead of waiting on the full multi-turn conversation.
-    threading.Thread(target=handle_visit, daemon=True).start()
-    return jsonify({"status": "started"}), 202
-
-
-@app.route("/audio/<path:filename>")
-def serve_audio(filename):
-    # Serves generated reply clips so Home Assistant (on a different machine)
-    # can fetch them over HTTP instead of needing local filesystem access.
-    return send_from_directory(AUDIO_DIR, filename)
+from doorbell.server import app, main
 
 
 if __name__ == "__main__":
-    # Bind to 0.0.0.0 so the VM running HA can reach it over your LAN.
-    logging.basicConfig(level=logging.INFO)
-    serve(app, host="0.0.0.0", port=8787)
+    main()

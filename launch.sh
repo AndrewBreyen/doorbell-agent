@@ -28,14 +28,14 @@ fi
 export PATH="$PWD/venv/bin:$PATH"
 
 if [[ "${1:-}" == --simulator ]]; then
-    exec venv/bin/python simulator.py
+    exec venv/bin/python -m doorbell.simulator
 fi
 
 venv/bin/python - <<'PY'
 from pathlib import Path
 from shutil import which
 
-from doorbell_agent import load_config
+from doorbell.agent import load_config
 
 cfg = load_config()
 if cfg["home_assistant"]["token"] == "YOUR_LONG_LIVED_ACCESS_TOKEN":
@@ -61,7 +61,7 @@ ollama_ready() {
 }
 
 if ollama_ready; then
-    exec venv/bin/python server.py
+    exec venv/bin/python -m doorbell.server
 fi
 
 if ! command -v ollama >/dev/null 2>&1; then
@@ -86,7 +86,7 @@ trap 'exit 143' TERM
 
 for ((attempt = 0; attempt < 30; attempt++)); do
     if ollama_ready; then
-        venv/bin/python server.py &
+        venv/bin/python -m doorbell.server &
         webhook_pid=$!
         wait "$webhook_pid"
         exit
