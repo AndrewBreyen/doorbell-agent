@@ -50,46 +50,27 @@ Confirm you now have entities like:
 Entity names vary — check **Settings → Devices & Services → Entities** and update
 `config.yaml` accordingly.
 
-## 3. Install the local AI stack (on the Mac mini)
+## 3. Set up the local AI stack on the Mac mini
+
+With Python 3 and [Homebrew](https://brew.sh/) installed, run:
 
 ```bash
-# Whisper.cpp (speech-to-text)
-brew install whisper-cpp
-# Confirm the binary installed correctly:
-which whisper-cli
-# Download a model, e.g.:
-curl -L -o ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-
-# Ollama (LLM)
-brew install ollama
-ollama pull llama3.1:8b
-
-# Piper (text-to-speech) -- NOT available via Homebrew, install via pip instead
-pip install piper-tts
-# Download a voice model, e.g.:
-curl -L -o en_US-lessac-medium.onnx https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
-curl -L -o en_US-lessac-medium.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
-
-# ffmpeg (audio capture from RTSP)
-brew install ffmpeg
+./setup.sh
 ```
 
-## 4. Set up a Python virtual environment and configure the agent
+Setup installs missing ffmpeg, whisper.cpp, and Ollama through Homebrew. It
+installs Piper in its own Python environment and downloads the Whisper model
+and Piper voice to `models/`. It preserves custom model paths and updates
+obsolete example paths. If `.env` is missing, setup asks for your Home
+Assistant long-lived access token with the input hidden.
 
-macOS's Homebrew-managed Python blocks installing packages system-wide (PEP 668),
-so this project uses a virtual environment — an isolated set of Python packages
-just for this folder.
+## 4. Configure the agent
 
-```bash
-cd doorbell_agent
-python3 -m venv venv
-source venv/bin/activate   # run this every time you open a new terminal for this project
-pip install requests pyyaml python-dotenv flask piper-tts numpy
-cp config.example.yaml config.yaml
-cp .env.example .env
-# Edit config.yaml: HA URL, entity names, model paths
-# Edit .env: your real HA long-lived access token
-```
+Edit `config.yaml` with your Home Assistant URL, doorbell entity names, and
+stream URL. Set `behavior.agent_base_url` to the agent’s LAN URL so Home
+Assistant can fetch reply audio. Make sure the configured Ollama model is installed.
+With Ollama running, the default model can be installed with
+`ollama pull llama3.1:8b`.
 
 Generate an HA long-lived token: **HA Profile (bottom left) → Security →
 Long-Lived Access Tokens → Create Token**. Put it in `.env` as `HA_TOKEN=...`
@@ -102,11 +83,15 @@ never be pushed to the repo.
 ## 5. Start the webhook server on the Mac mini
 
 ```bash
-source venv/bin/activate   # if not already active in this terminal
-python server.py
+./launch.sh
 ```
 
-This listens on port `8787` for the trigger from HA. Keep it running (see
+The launcher checks the configured audio tools and model files, starts Ollama
+if needed, and serves the webhook with Waitress on port `8787`. The webhook invokes ffmpeg,
+whisper.cpp, and Piper when a ring arrives. Home Assistant and UniFi Protect
+must already be running.
+
+Keep the launcher running (see
 "Keeping it running" below for a way to auto-start it).
 
 Find your Mac mini's LAN IP (`ipconfig getifaddr en0`) and set a DHCP
@@ -130,6 +115,26 @@ to Python, whisper.cpp, Ollama, or Piper — all of that stays on the Mac mini.
 - Check your phone for the notification summary afterward
 - Tune `prompts.py` if the tone isn't quite right (e.g., make the solicitor
   response firmer/softer to taste)
+
+## Test visits in the web simulator
+
+From the repository directory, set up and start the simulator:
+
+```bash
+./setup.sh --simulator
+./launch.sh --simulator
+```
+
+Open [the simulator](http://127.0.0.1:8788), choose a scenario or edit up to
+three listening turns, and click **Simulate ring**. The event log shows each
+state the visit reaches, including simulated talkback and the notification
+summary. The known-face scenario skips the concierge, and the solicitor
+scenario stops after the first reply even with another turn queued.
+
+The simulator runs on localhost and uses the same visit logic as the webhook.
+It uses scripted transcripts, intent labels and replies, and records the speaker
+and notification calls in the log. It requires no Home Assistant credentials,
+doorbell, audio tools, or local AI models.
 
 ## Files in this project
 

@@ -25,6 +25,7 @@ import wave
 import re
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import requests
 import yaml
@@ -270,8 +271,25 @@ def synthesize_speech(cfg, text: str, out_path: Path):
         raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
 
 
-def run_visit(cfg, ha: HomeAssistant):
-    tmp_dir = Path("/tmp/doorbell_agent")
+def handle_ring(cfg, ha, *, operations=None, tmp_dir=None):
+    if is_known_face(ha, cfg):
+        return False
+
+    run_visit(cfg, ha, operations=operations, tmp_dir=tmp_dir)
+    return True
+
+
+def run_visit(cfg, ha: HomeAssistant, *, operations=None, tmp_dir=None):
+    if operations is None:
+        operations = SimpleNamespace(
+            record=record_clip,
+            transcribe=transcribe,
+            classify_and_respond=classify_and_respond,
+            synthesize=synthesize_speech,
+            pause=time.sleep,
+        )
+    if tmp_dir is None:
+        tmp_dir = Path("/tmp/doorbell_agent")
     tmp_dir.mkdir(exist_ok=True)
 
     history_lines = []
@@ -281,21 +299,20 @@ def run_visit(cfg, ha: HomeAssistant):
         clip_path = tmp_dir / f"clip_{turn}.wav"
         reply_path = tmp_dir / f"reply_{turn}.wav"
 
-        speech_detected = record_clip(cfg, clip_path)
-        if not speech_detected:
-            break  # visitor never made noise -- skip transcription entirely, save time
-        transcript = transcribe(cfg, clip_path)
+        if not operations.record(cfg, clip_path):
+            break  # visitor never made noise
+        transcript = operations.transcribe(cfg, clip_path)
 
         if not transcript:
             break  # ffmpeg picked up noise but whisper couldn't make out words
 
-        intent, reply_text = classify_and_respond(cfg, transcript, "\n".join(history_lines))
+        intent, reply_text = operations.classify_and_respond(cfg, transcript, "\n".join(history_lines))
         final_intent = intent
 
         history_lines.append(f"Visitor: {transcript}")
         history_lines.append(f"Assistant: {reply_text}")
 
-        synthesize_speech(cfg, reply_text, reply_path)
+        operations.synthesize(cfg, reply_text, reply_path)
         agent_base_url = cfg["behavior"]["agent_base_url"].rstrip("/")
         ha.play_audio_on_doorbell(
             cfg["home_assistant"]["doorbell_talkback_entity"],
@@ -306,7 +323,7 @@ def run_visit(cfg, ha: HomeAssistant):
         if intent == "SOLICITOR":
             break
 
-        time.sleep(1)
+        operations.pause(1)
 
     summary = "\n".join(history_lines) if history_lines else "(no speech detected)"
     ha.notify(
@@ -320,12 +337,8 @@ def main():
     cfg = load_config()
     ha = HomeAssistant(cfg)
 
-    if is_known_face(ha, cfg):
-        # Known face recognized by UniFi Protect -> skip the AI entirely.
+    if not handle_ring(cfg, ha):
         print("Known face detected, skipping AI concierge.")
-        return
-
-    run_visit(cfg, ha)
 
 
 if __name__ == "__main__":
